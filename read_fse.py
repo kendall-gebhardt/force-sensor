@@ -2,6 +2,8 @@ import serial
 import sys
 import struct
 
+#set up the serial port
+#need a 'try' function to find the right usb port
 ser = serial.Serial("/dev/ttyACM0")
 ser.baudrate = 115200
 ser.bytesize = serial.EIGHTBITS
@@ -9,30 +11,37 @@ ser.parity = serial.PARITY_NONE
 ser.stopbits = serial.STOPBITS_ONE
 ser.timeout = 1
 
-stopCount = 100 #number of datapoints, later this will just wait until a buttonpress
+#define how many datapoints to take
+stopCount = 100
+#later this will just wait until an interrupt
 
+#These commands are from the datasheet
 raw = b'\x72'
 force = b'\x66'
 init = b'\x7a'
+
+#specify data type for this reading
 dataType = force
 
-#initialize
-#ser.write(dataType)
+#initialize the sensor
 ser.write(init)
 ser.close()
 
-#create a text file
-file = open("testfile.csv","w")
+#create a text file and add column headers
+#I put the /logs/ directory in .gitignore but this may cause problems later
+file = open("logs/testfile.csv","w")
+file.write("Time, Force X, Force Y, Force Z\n")
 
+#define a function for grabbing data
 def getForce():
-    print('start')
+    
     ser.open()
+    
     #wait for first byte 0x0D
-    #while(chr.from_bytes(ser.read(size=1)) != '\r'):
     while(ser.read(size=1).decode() != '\r'):
-        #print(str(struct.unpack('b', ser.read(size=1))))
-        print(str(ser.read(size=1).decode()))
-
+        ser.read(size=1).decode()
+        
+    #pick out data packets, sizes and types are from the datasheet
     size = struct.unpack('B',ser.read(size=1))
     mesgType = struct.unpack('s',ser.read(size=1))
     timeStamp = struct.unpack('>I', ser.read(size=4))
@@ -40,31 +49,31 @@ def getForce():
     forceY = struct.unpack('>f', ser.read(size=4))
     forceZ = struct.unpack('>f', ser.read(size=4))
     stopByte = struct.unpack('>?', ser.read(size=1))
+    
     ser.close()
-
+    
+    #Hacky way to check message type
     if (mesgType[0] == b'f'):
         messageType = "force"
     if (mesgType[0] == b'r'):
         messageType = "raw"
 
-    triplet = [forceX[0], forceY[0], forceZ[0]]
+    #package data into an array
+    dataOut = [timeStamp[0], forceX[0], forceY[0], forceZ[0]]
 
-    return triplet;
+    return dataOut;
 
 for i in range (stopCount):
 
     forces = getForce();
-    #print(str(size[0]))
-    #print(str(messageType))
-    #print("Seconds: " + str(timeStamp[0]))
-    #print("Force X: " + str(forceX[0]))
-    #print("Force Y: " + str(forceY[0]))
-    #print("Force Z: " + str(forceZ[0]))
-    #print(str(stopByte[0]))
-    print("Triplet: " + str(forces))
-    file.write(str(forces[0]) + "," + str(forces[1]) + "," + str(forces[2]) + "\n")
-    print('end')
+    
+    #Log data in terminal to show progress
+    print(str(forces))
+    
+    #write data to logfile
+    file.write(str(forces[0]) + "," + str(forces[1]) + "," + str(forces[2]) + "," + str(forces[3]) + "\n")
 
+#close file when done
 file.close()
 
 
