@@ -8,7 +8,8 @@
 
 import argparse
 import datetime
-import RPi.GPIO as GPIO
+#import RPi.GPIO as GPIO
+from sense_hat import SenseHat
 import serial
 import struct
 import sys
@@ -16,21 +17,13 @@ import time
 
 """ Non public global variables """
 _filename = ""
-_negative_x_pin = 31
-_positive_x_pin = 32
-_negative_y_pin = 35
-_positive_y_pin = 36
-_negative_z_pin = 37
-_positive_z_pin = 38
-_power_pin = 29
-_activity_pin = 33
-
 
 
 def set_globals(filename):
     """Sets modular global variables"""
     global _filename
     _filename = 'logs/' + filename
+    
     
     print ("Globals set...")
     return True
@@ -86,15 +79,11 @@ def indicator_init():
     :return: True when complete, false if error
     """
     try:
-        # set mode of hardware GPIOs to external pin numbering
-        GPIO.setmode(GPIO.BOARD)
-
-        # make LED gpios outputs
-        led_pin_list = [_negative_x_pin,_positive_x_pin,_negative_y_pin, _positive_y_pin, 
-                        _negative_z_pin, _positive_z_pin, _power_pin, _activity_pin]
-        GPIO.setup(led_pin_list, GPIO.OUT)
+        sense.set_rotation(0)
+        sense.clear()
+        sense.low_light = True
     except Exception:
-        print("Error setting up GPIOs")
+        print("Error setting up LEDs")
         return False
 
     print ("Indicators initialized...")
@@ -163,38 +152,103 @@ def indicate_status(forces):
     force_threshold_y = 2
     force_threshold_z = 5
     
-    # use the boolean condition to turn pin on/off
-    # this does not work for multicolor LED
-    GPIO.output(_positive_x_pin, (forces[1] > force_threshold_x))
-    GPIO.output(_negative_x_pin, (forces[1] < (force_threshold_x * -1)))
-    GPIO.output(_positive_y_pin, (forces[2] > force_threshold_y))
-    GPIO.output(_negative_y_pin, (forces[2] < (force_threshold_y * -1)))
-    GPIO.output(_positive_z_pin, (forces[3] > force_threshold_z))
-    GPIO.output(_negative_z_pin, (forces[3] < (force_threshold_z * -1)))
+    red = (255,0,0)
+    off = (0,0,0)
+    
+    #  set border
+    X = [0, 150, 0]  # light green
+    O = [0, 0, 0]  # off
 
-    positive_leds = [_positive_x_pin, _positive_y_pin, _positive_z_pin]
-    negative_leds = [_negative_x_pin, _negative_y_pin, _negative_z_pin]
-
-    #for i in range (len(forces)):
-        #if forces[i] > force_threshold:
-            #color = red
-            #LED = positive[i]
-        #if forces[i] < (force_threshold * -1):
-            #color = red
-            #LED = negative[i]
-        #if forces[i] < force_threshold && forces[i] > touch_threshold:
-            #color = green
-            #LED = positive[i]
-        #if forces[i] > (force_threshold * -1) && forces[i] < (touch_threshold * -1):
-            #color = green
-            #LED = negative[i]
-        #else:
-            #positive and negative of [i] are off
-
-    # Toggle with
-    # GPIO.output(pin, not GPIO.input(pin))
+    border = [
+    O, O, O, O, O, O, O, O,
+    O, X, X, X, X, X, X, O,
+    O, X, O, O, O, O, X, O,
+    O, X, O, O, O, O, X, O,
+    O, X, O, O, O, O, X, O,
+    O, X, O, O, O, O, X, O,
+    O, X, X, X, X, X, X, O,
+    O, O, O, O, O, O, O, O
+    ]
+    
+    sense.clear()
+    
+    if forces[3] > force_threshold_z:
+        sense.set_pixels(border)
+        
+    if forces[1] > force_threshold_x:
+        for i in range (0,8):
+            sense.set_pixel(i, 7, red)
+    if forces[1] < (-1 * force_threshold_x):
+        for i in range (0,8):
+            sense.set_pixel(i, 0, red)
+    #if forces[1] > (-1 * force_threshold_x) and forces[1] < force_threshold_x:
+        #sense.clear()
+    if forces[2] > force_threshold_y:
+        for i in range (0,8):
+            sense.set_pixel(7, i, red)
+    if forces[2] < (-1 * force_threshold_y):
+        for i in range (0,8):
+            sense.set_pixel(0, i, red)
 
     return True
+
+def update_bubble(bubble):
+    #  init bubble
+    old_bubble = bubble
+    prev_x1 = old_bubble[0]
+    prev_x2 = old_bubble[1]
+    prev_y1 = old_bubble[2]
+    prev_y2 = old_bubble[3]
+    
+    accel_threshold = 0.1
+
+    raw_Gs = sense.get_accelerometer_raw()
+    x_Gs = raw_Gs['x']
+    y_Gs = raw_Gs['y']
+    z_Gs = raw_Gs['z']
+    
+    if x_Gs >= (-1 * accel_threshold) and x_Gs <= accel_threshold:
+        x1 = 3
+        x2 = 4
+    if y_Gs >= (-1 * accel_threshold) and y_Gs <= accel_threshold:
+        y1 = 3
+        y2 = 4
+        
+    if x_Gs <= (-1 * accel_threshold):
+        x1 = 4
+        x2 = 5
+    if y_Gs <= (-1 * accel_threshold):
+        y1 = 4
+        y2 = 5
+        
+    if x_Gs >= accel_threshold:
+        x1 = 2
+        x2 = 3
+    if y_Gs >= accel_threshold:
+        y1 = 2
+        y2 = 3
+
+    if x1 != prev_x1:
+        sense.set_pixel(prev_x1, prev_y1, 0, 0, 0)
+        sense.set_pixel(prev_x1, prev_y2, 0, 0, 0)
+    if x2 != prev_x2:
+        sense.set_pixel(prev_x2, prev_y1, 0, 0, 0)
+        sense.set_pixel(prev_x2, prev_y2, 0, 0, 0)
+    if y1 != prev_y1:
+        sense.set_pixel(prev_x1, prev_y1, 0, 0, 0)
+        sense.set_pixel(prev_x2, prev_y1, 0, 0, 0)
+    if y2 != prev_y2:
+        sense.set_pixel(prev_x1, prev_y2, 0, 0, 0)
+        sense.set_pixel(prev_x2, prev_y2, 0, 0, 0)
+    
+    sense.set_pixel(x1, y1, 0, 0, 255)
+    sense.set_pixel(x1, y2, 0, 0, 255)
+    sense.set_pixel(x2, y1, 0, 0, 255)
+    sense.set_pixel(x2, y2, 0, 0, 255)
+
+    bubble = [x1, x2, y1, y2]
+    
+    return bubble
 
 def run_script(program_timeout):
     """
@@ -211,39 +265,42 @@ def run_script(program_timeout):
     start_time = datetime.datetime.now()
     current_time = start_time
     last_reading = start_time
+    
+    # init accelerometer bubble
+    bubble = [0 , 0, 0, 0]
 
-    while (current_time - start_time).total_seconds() < float(program_timeout * 60):
+    try:
+        while (current_time - start_time).total_seconds() < float(program_timeout * 60):
         
-        current_time = datetime.datetime.now()
+            current_time = datetime.datetime.now()
         
-        try:
             if (current_time - last_reading).total_seconds() > interval:
                 # Start activity and set the indicator as such
-                GPIO.output(_activity_pin, True)
+                #GPIO.output(_activity_pin, True)
                 
                 # perform the read-->log-->indicate sequence
                 forces = get_force()
                 log_force(forces)
                 indicate_status(forces)
-
+                bubble = update_bubble(bubble)
                 last_reading = current_time
                 
-                GPIO.output(_activity_pin, False) 
+                #GPIO.output(_activity_pin, False) 
     
-        except KeyboardInterrupt:
-            # Quit cleanly if the user presses ^C
-            print ("User interrupt...quitting...")
-            GPIO.output(_activity_pin, False)
-            GPIO.cleanup()
-            s.close()
-            #file.close()
-            return False
+    except KeyboardInterrupt:
+        # Quit cleanly if the user presses ^C
+        print ("User interrupt...quitting...")
+        #GPIO.output(_activity_pin, False)
+        sense.clear()
+        s.close()
+        #file.close()
+        return False
             
     
     # Quit cleanly if the program times out
     print ("Program timed out...quitting...")
-    GPIO.output(_activity_pin, False)
-    GPIO.cleanup()
+    #GPIO.output(_activity_pin, False)
+   # GPIO.cleanup()
     return True
 
 
@@ -297,17 +354,19 @@ if __name__ == "__main__":
             #print("Port: " + str(port))
 
         # set up the serial port 
-        s = serial.Serial(port='/dev/ttyACM0', baudrate=115200, timeout=0.1)
+        s = serial.Serial(port=port, baudrate=115200, timeout=0.1)
         print("Serial set...")
         # run init functions
+        sense = SenseHat()
+        
         sensor_init(parsed_args.data_format)
         logs_init()
         indicator_init()
-        GPIO.output(_power_pin, True)
+        #GPIO.output(_power_pin, True)
         # Do the things!
         run_script(program_timeout=parsed_args.program_timeout)
     except Exception:
-        print("Error")
+        raise
         
     
         
@@ -315,15 +374,11 @@ if __name__ == "__main__":
 
     ####################################################
     #                       TODOs                      #
-    # - Quit better when in the get_force() fcn
+    # - 
     # - 
     # - check usb device ID and vendor, compare to sensor
     # - 
 
-    # Optional TODO is to switch the control of the LEDs from direct to I2C as in https://www.sparkfun.com/products/13884
-        # or https://www.sparkfun.com/products/14038 (this one needs any two gpios and 5v power)
-    # This may depend somewhat on if the LEDs will have their own board or if they will be hand soldered
-    # I2C control does allow differentiation between light and hard touch -- will need different logic though
     # Power pin needs to be turned on outside of this script, preferably at the very end of the boot sequence
         # to show that it is ready to start logging
     # Have the pi shut down either 1) when the sensor is unplugged 2) when the script stops (or after copying the file?) 
@@ -333,15 +388,3 @@ if __name__ == "__main__":
         # either way, automatedworkout needs to know that the plate is coming from handoff and not the automation plate location
     # for hardware, check with hnin where the default location is for gripping deep well plates. it would be awesome if 
         # we could just tell the gantry it is a deep well and not have to onboard a new plate type
-
-            #example#
-    # ## Wait for valid input in while...not ###
-    # is_valid=0
- 
-    # while not is_valid :
-    #     try :
-    #         choice = int ( raw_input('Enter your choice [1-3] : ') )
-    #         ## set it to 1 to validate input and to terminate the while..not loop
-    #         is_valid = 1 
-    #     except ValueError, e :
-    #         print ("'%s' is not a valid integer." % e.args[0].split(": ")[1])
